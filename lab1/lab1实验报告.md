@@ -1,11 +1,17 @@
 <h1><center>lab1实验报告</center></h1>
 
-## 练习一
+## 练习一：理解内核启动中的程序入口操作
+
+阅读 kern/init/entry.S内容代码，结合操作系统内核启动流程，说明指令 la sp, bootstacktop 完成了什么操作，目的是什么？ tail kern_init 完成了什么操作，目的是什么？
 
 1. `la sp,bootstacktop`：将`bootstacktop`对应的地址赋值给`sp`寄存器，目的是初始化栈，为栈分配内存空间。
 2. `tail kern_init`：尾调用，在函数`kern_init`的位置继续执行，目的是进入操作系统的入口，也避免了这一次的函数调用影响`sp`。
 
-## 练习二
+## 练习二：完善中断处理 （需要编程）
+
+请编程完善trap.c中的中断处理函数trap，在对时钟中断进行处理的部分填写kern/trap/trap.c函数中处理时钟中断的部分，使操作系统每遇到100次时钟中断后，调用print_ticks子程序，向屏幕上打印一行文字”100 ticks”，在打印完10行后调用sbi.h中的shut_down()函数关机。
+
+要求完成问题1提出的相关函数实现，提交改进后的源代码包（可以编译执行），并在实验报告中简要说明实现过程和定时器中断中断处理的流程。实现要求的部分代码后，运行整个系统，大约每1秒会输出一次”100 ticks”，输出10行。
 
 实现代码如下：
 
@@ -31,7 +37,9 @@ if(num == 10)
   + 调用`trap_dispatch`函数，判断异常是中断，跳转到处理函数`interrupt_handler`处继续执行。
   + 根据`cause`的值，跳转到`IRQ_S_TIMER`处继续执行。
 
-## 扩展练习一
+## 扩展练习一 Challenge1：描述与理解中断流程
+
+回答：描述ucore中处理中断异常的流程（从异常的产生开始），其中mov a0，sp的目的是什么？SAVE_ALL中寄寄存器保存在栈中的位置是什么确定的？对于任何中断，__alltraps 中都需要保存所有寄存器吗？请说明理由。
 
 1. 异常处理的步骤如下：
    + 异常产生后，会跳转到寄存器`stvec`保存的地址执行指令，由于内核初始化时将该寄存器设置为`__alltraps`，所以会跳转到`trapentry.S`中的`__alltraps`标签处执行。
@@ -41,7 +49,9 @@ if(num == 10)
 3. 寄存器保存的位置是由结构体`trapframe`和`pushregs`中的定义顺序决定的，因为后续这些寄存器都要作为函数`trap`的参数的具体内容。
 4. 需要保存所有的寄存器。因为这些寄存器都将用于函数`trap`参数的一部分，如果不保存所有寄存器，函数参数不完整。
 
-## 扩展练习二
+## 扩展练习二 Challenge2：理解上下文切换机制
+
+回答：在trapentry.S中汇编代码 csrw sscratch, sp；csrrw s0, sscratch, x0实现了什么操作，目的是什么？save all里面保存了stval scause这些csr，而在restore all里面却不还原它们？那这样store的意义何在呢？
 
 1. + `csrw sscratch, sp`：将`sp`的值赋值给`sscratch`
    + `csrrw s0, sscratch, x0`：将`sscratch`赋值给`s0`，将`sscratch`置0
@@ -50,7 +60,9 @@ if(num == 10)
 
 2. 不还原那些 `csr`，是因为异常已经由`trap`处理过了，没有必要再去还原。这样的意义是将这些状态寄存器作为参数的一部分传递给`trap`函数，使其能够正确处理异常。
 
-## 扩展练习三
+## 扩展练习三 Challenge3：完善异常中断
+
+编程完善在触发一条非法指令异常 mret和，在 kern/trap/trap.c的异常处理函数中捕获，并对其进行处理，简单输出异常类型和异常指令触发地址，即“Illegal instruction caught at 0x(地址)”，“ebreak caught at 0x（地址）”与“Exception type:Illegal instruction"，“Exception type: breakpoint”。（
 
 编程实现如下：
 
