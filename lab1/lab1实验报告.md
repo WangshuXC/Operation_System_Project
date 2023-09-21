@@ -1,5 +1,7 @@
 <h1><center>lab1实验报告</center></h1>
 
+[toc]
+
 ## 练习一：理解内核启动中的程序入口操作
 
 阅读 kern/init/entry.S内容代码，结合操作系统内核启动流程，说明指令 la sp, bootstacktop 完成了什么操作，目的是什么？ tail kern_init 完成了什么操作，目的是什么？
@@ -109,6 +111,4 @@ ebreak caught at 0x80200054
 ```
 
 异常必须在`idt_init();`调用之后才会正确执行，因为在该函数中设置`stvec`的值，在这之前不会跳转到我们定义的异常处理程序。
-
-## 重要的知识点
 
