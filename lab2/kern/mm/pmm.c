@@ -11,6 +11,8 @@
 #include <../sync/sync.h>
 #include <riscv.h>
 
+// pages指针保存的是第一个Page结构体所在的位置，也可以认为是Page结构体组成的数组的开头
+// 由于C语言的特性，可以把pages作为数组名使用，pages[i]表示顺序排列的第i个结构体
 // virtual address of physical page array
 struct Page *pages;
 // amount of physical memory (in pages)
@@ -20,6 +22,7 @@ uint64_t va_pa_offset;
 // memory starts at 0x80000000 in RISC-V
 // DRAM_BASE defined in riscv.h as 0x80000000
 const size_t nbase = DRAM_BASE / PGSIZE;
+//(npage - nbase)表示物理内存的页数
 
 // virtual address of boot-time page directory
 uintptr_t *satp_virtual = NULL;
@@ -81,11 +84,11 @@ size_t nr_free_pages(void) {
 }
 
 static void page_init(void) {
-    va_pa_offset = PHYSICAL_MEMORY_OFFSET;
+    va_pa_offset = PHYSICAL_MEMORY_OFFSET;//硬编码 0xFFFFFFFF40000000
 
-    uint64_t mem_begin = KERNEL_BEGIN_PADDR;
+    uint64_t mem_begin = KERNEL_BEGIN_PADDR;//硬编码 0x80200000
     uint64_t mem_size = PHYSICAL_MEMORY_END - KERNEL_BEGIN_PADDR;
-    uint64_t mem_end = PHYSICAL_MEMORY_END; //硬编码取代 sbi_query_memory()接口
+    uint64_t mem_end = PHYSICAL_MEMORY_END; //硬编码取代 sbi_query_memory()接口 //硬编码 0x88000000
 
     cprintf("physcial memory map:\n");
     cprintf("  memory: 0x%016lx, [0x%016lx, 0x%016lx].\n", mem_size, mem_begin,
@@ -101,17 +104,22 @@ static void page_init(void) {
 
     npage = maxpa / PGSIZE;
     //kernel在end[]结束, pages是剩下的页的开始
+    
     pages = (struct Page *)ROUNDUP((void *)end, PGSIZE);
+    //把pages指针指向内核所占内存空间结束后的第一页
 
+    //一开始把所有页面都设置为保留给内核使用的，之后再设置哪些页面可以分配给其他程序
     for (size_t i = 0; i < npage - nbase; i++) {
         SetPageReserved(pages + i);
     }
 
+    //从这个地方开始才是我们可以自由使用的物理内存
     uintptr_t freemem = PADDR((uintptr_t)pages + sizeof(struct Page) * (npage - nbase));
 
     mem_begin = ROUNDUP(freemem, PGSIZE);
     mem_end = ROUNDDOWN(mem_end, PGSIZE);
     if (freemem < mem_end) {
+        //初始化我们可以自由使用的物理内存
         init_memmap(pa2page(mem_begin), (mem_end - mem_begin) / PGSIZE);
     }
 }
