@@ -1,41 +1,399 @@
-### 练习
+<h1><center>lab3实验报告</center></h1>
 
-对实验报告的要求：
- - 基于markdown格式来完成，以文本方式为主
- - 填写各个基本练习中要求完成的报告内容
- - 完成实验后，请分析ucore_lab中提供的参考答案，并请在实验报告中说明你的实现与参考答案的区别
- - 列出你认为本实验中重要的知识点，以及与对应的OS原理中的知识点，并简要说明你对二者的含义，关系，差异等方面的理解（也可能出现实验中的知识点没有对应的原理知识点）
- - 列出你认为OS原理中很重要，但在实验中没有对应上的知识点
+## 练习一
+
+当需要换入页面时，需要调用`swap.c`文件中的`swap_in`。
+
++ `swap_in`：用于换入页面。首先调用`pmm.c`中的`alloc_page`，申请一块连续的内存空间，然后调用`get_pte`找到或者构建对应的页表项，最后调用`swapfs_read`将数据从磁盘写入内存。
++ `alloc_page`：用于申请页面。通过调用`pmm_manager->alloc_pages`申请一块连继续的内存空间，在这个过程中，如果申请页面失败，那么说明需要换出页面，则调用`swap_out`换出页面，之后再次进行申请。
++ `assert(result!=NULL)`：判断获得的页面是否为`NULL`，只有页面不为`NULL`才能继续。
++ `swap_out`：用于换出页面。首先需要循环调用`sm->swap_out_victim`，对应于`swap_fifo`中的`_fifo_swap_out_victim`。然后调用`get_pte`获取对应的页表项，将该页面写入磁盘，如果写入成功，释放该页面；如果写入失败，调用`_fifo_map_swappable`更新FIFO队列。最后刷新TLB。
+  + `free_page`：用于释放页面。通过调用`pmm_manager->free_pages`释放页面。
+  + `assert((*ptep & PTE_V) != 0);`：用于判断获得的页表项是否合法。由于这里需要交换出去页面，所以获得的页表项必须是合法的。
+  + `swapfs_write`：用于将页面写入磁盘。在这里由于需要换出页面，而页面内容如果被修改过那么就与磁盘中的不一致，所以需要将其重新写回磁盘。
+  + `tlb_invalidate`：用于刷新TLB。通过调用`flush_tlb`刷新TLB。
++ `get_pte`：用于获得页表项。
++ `swapfs_read`：用于从磁盘读入数据。
++ `_fifo_swap_out_victim`：用于获得需要换出的页面。查找队尾的页面，作为需要释放的页面。
++ `_fifo_map_swappable`：将最近使用的页面添加到队头。在`swap_out`中调用是用于将队尾的页面移动到队头，防止下一次换出失败。
+
+该页面移动到了链表的末尾时，在下一次有页面换入的时候需要被换出。当需要换出页面时，需要调用`swap.c`文件中的`swap_out`，后续的方法在上面已经给出。
+
+## 练习二
+
++ **相似的原因**：第一段代码用于从`GiGa Page`中查找`PDX1`的地址，如果查得的地址不合法则为该页表项分配内存空间；第二段代码用于从`MeGa Page`中查找`PDX0`的地址，如果查得的地址不合法则为该页表项分配内存空间。两次查找的逻辑相同，不同的只有查找的基地址与页表偏移量所在位数。而三种页表管理机制只是虚拟页表的地址长度或页表的级数不同，规定好偏移量即可按照同一规则找出对应的页表项。
++ 这种写法好。因为在大部分情况下，我们只有在获取页表非法的情况下才会创建页表，而且我们也只关心最后一级页表所给出的页，合在一起减少了代码重复和函数调用的开销及深度，使代码更简洁。
+
+## 练习三
+
+- **设计实现过程**：
+
+  + `swap_in(mm,addr,&page)`：首先需要根据页表基地址和虚拟地址完成磁盘的读取，写入内存，返回内存中的物理页。
+
+  + `page_insert(mm->pgdir,page,addr,perm)`：然后完成虚拟地址和内存中物理页的映射。
+  + `swap_map_swappable(mm,addr,page,0)`：最后设置该页面是可交换的。
+
++ **潜在用处**：页目录项和页表项中的合法位可以用来判断该页面是否存在，还有一些其他的权限位，比如可读可写，可以用于CLOCK算法或LRU算法。修改位可以决定在换出页面时是否需要写回磁盘。
++ **页访问异常**：trap--> trap_dispatch-->pgfault_handler-->do_pgfault
+  + 首先保存当前异常原因，根据`stvec`的地址跳转到中断处理程序，即`trap.c`文件中的`trap`函数。
+  + 接着跳转到`exception_handler`中的`CAUSE_LOAD_ACCESS`处理缺页异常。
+  + 然后跳转到`pgfault_handler`，再到`do_pgfault`具体处理缺页异常。
+  + 如果处理成功，则返回到发生异常处继续执行。
+  + 否则输出`unhandled page fault`。
++ **对应关系**：有对应关系。如果页表项映射到了物理地址，那么这个地址对应的就是`Page`中的一项。
+
+## 练习四
+
+- **设计实现过程**：
+
+  + 初始化需要初始化链表、当前节点指针和`mm`的成员`sm_priv`指针：
+
+    ```c
+    list_init(&pra_list_head);
+    curr_ptr = &pra_list_head;
+    mm->sm_priv = &pra_list_head;
+    ```
+
+  + 设置页面可交换，表示当前页面正要被使用，需要将其添加到链表尾部并设置`visited`：
+
+    ```c
+    list_add_before((list_entry_t*) mm->sm_priv,entry);
+    page->visited = 1;
+    ```
+
+  + 遍历链表，如果下一个指针是`head`，则将其指向为下一个指针。如果依然是`head`，说明该链表为空，返回`NULL`，否则构造页面，判断是否最近被使用过，如果没有则重置`visited`，直到找到一个`visited = 0`的页面为止。
+
+    ```c
+    curr_ptr = list_next(curr_ptr);
+    if(curr_ptr == head) {
+        curr_ptr = list_next(curr_ptr);
+        if(curr_ptr == head) {
+            *ptr_page = NULL;
+            break;
+        }
+    }
+    struct Page* page = le2page(curr_ptr, pra_page_link);
+    if(!page->visited) {
+        *ptr_page = page;
+        list_del(curr_ptr);
+        cprintf("curr_ptr %p\n",curr_ptr);
+        //curr_ptr = head;
+        break;
+    } else {
+        page->visited = 0;
+    }
+    ```
+
+- **不同：**
+
+  + Clock算法：每次添加新页面时会将页面添加到链表尾部。每次换出页面时都会遍历查找最近没有使用的页面。
+
+  + FIFO算法：将链表看成队列，每次添加新页面会将页面添加到链表头部（队列尾部）。每次换出页面时不管队头的页面最近是否访问，均将其换出。
+
+## 练习五
+
++ **优势**：内存访问次数少，只需要访问一次内存即可得到物理地址； 可以映射更多的连续内存空间；减少 TLB 缺失；简化操作系统的页表管理。
++ **劣势**：页表项必须连续，占用内存过大； 使用大页可能导致内部碎片；不适用于小内存系统；可能需要更多的页表维护工作。
+
+## 扩展练习
+
+### 设计思路
+
+将新加入的页面或刚刚访问的页插入到链表头部，这样每次换出页面时只需要将链表尾部的页面取出即可。
+
+为了知道访问了哪个页面，可以在建立页表项时将每个页面的权限全部设置为不可读，这样在访问一个页面的时候会引发缺页异常，将所有页的页表项的权限设置为不可读，之后将该页放到链表头部，设置页面为可读。
+
+### 代码实现
+
+在`do_pgfault`中添加如下代码：
+
+```c
+pte_t* temp = NULL;
+temp = get_pte(mm->pgdir, addr, 0);
+if(temp != NULL && (*temp & (PTE_V | PTE_R))) {
+    return lru_pgfault(mm, error_code, addr);
+}
+```
+
+在为`perm`设置完权限之后，移除读权限：
+
+```c
+perm &= ~PTE_R;
+```
+
+`lru`的异常处理部分：
+
+```c
+int lru_pgfault(struct mm_struct *mm, uint_t error_code, uintptr_t addr) {
+    cprintf("lru page fault at 0x%x\n", addr);
+    // 设置所有页面不可读
+    if(swap_init_ok) 
+        unable_page_read(mm);
+    // 将需要获得的页面设置为可读
+    pte_t* ptep = NULL;
+    ptep = get_pte(mm->pgdir, addr, 0);
+    *ptep |= PTE_R;
+    if(!swap_init_ok) 
+        return 0;
+    struct Page* page = pte2page(*ptep);
+    // 将该页放在链表头部
+    list_entry_t *head=(list_entry_t*) mm->sm_priv, *le = head;
+    while ((le = list_prev(le)) != head)
+    {
+        struct Page* curr = le2page(le, pra_page_link);
+        if(page == curr) {
+            
+            list_del(le);
+            list_add(head, le);
+            break;
+        }
+    }
+    return 0;
+}
+```
+
+设置所有页面不可读，原理是遍历链表，转换为`page`，根据`pra_vaddr`获得页表项，设置不可读：
+
+```c
+static int
+unable_page_read(struct mm_struct *mm) {
+    list_entry_t *head=(list_entry_t*) mm->sm_priv, *le = head;
+    while ((le = list_prev(le)) != head)
+    {
+        struct Page* page = le2page(le, pra_page_link);
+        pte_t* ptep = NULL;
+        ptep = get_pte(mm->pgdir, page->pra_vaddr, 0);
+        *ptep &= ~PTE_R;
+    }
+    return 0;
+}
+```
+
+其余部分与`FIFO`算法差异不大，罗列如下：
+
+```c
+static int
+_lru_init_mm(struct mm_struct *mm)
+{     
+
+    list_init(&pra_list_head);
+    mm->sm_priv = &pra_list_head;
+     //cprintf(" mm->sm_priv %x in fifo_init_mm\n",mm->sm_priv);
+     return 0;
+}
+
+static int
+_lru_map_swappable(struct mm_struct *mm, uintptr_t addr, struct Page *page, int swap_in)
+{
+    list_entry_t *head=(list_entry_t*) mm->sm_priv;
+    list_entry_t *entry=&(page->pra_page_link);
  
-#### 练习0：填写已有实验
-本实验依赖实验1/2。请把你做的实验1/2的代码填入本实验中代码中有“LAB1”,“LAB2”的注释相应部分。
+    assert(entry != NULL && head != NULL);
+    list_add((list_entry_t*) mm->sm_priv,entry);
+    return 0;
+}
+static int
+_lru_swap_out_victim(struct mm_struct *mm, struct Page ** ptr_page, int in_tick)
+{
+     list_entry_t *head=(list_entry_t*) mm->sm_priv;
+         assert(head != NULL);
+     assert(in_tick==0);
+    list_entry_t* entry = list_prev(head);
+    if (entry != head) {
+        list_del(entry);
+        *ptr_page = le2page(entry, pra_page_link);
+    } else {
+        *ptr_page = NULL;
+    }
+    return 0;
+}
+```
 
-#### 练习1：理解基于FIFO的页面替换算法（思考题）
-描述FIFO页面置换算法下，一个页面从被换入到被换出的过程中，会经过代码里哪些函数/宏的处理（或者说，需要调用哪些函数/宏），并用简单的一两句话描述每个函数在过程中做了什么？（为了方便同学们完成练习，所以实际上我们的项目代码和实验指导的还是略有不同，例如我们将FIFO页面置换算法头文件的大部分代码放在了`kern/mm/swap_fifo.c`文件中，这点请同学们注意）
- - 至少正确指出10个不同的函数分别做了什么？如果少于10个将酌情给分。我们认为只要函数原型不同，就算两个不同的函数。要求指出对执行过程有实际影响,删去后会导致输出结果不同的函数（例如assert）而不是cprintf这样的函数。如果你选择的函数不能完整地体现”从换入到换出“的过程，比如10个函数都是页面换入的时候调用的，或者解释功能的时候只解释了这10个函数在页面换入时的功能，那么也会扣除一定的分数
+### 测试
 
-#### 练习2：深入理解不同分页模式的工作原理（思考题）
-get_pte()函数（位于`kern/mm/pmm.c`）用于在页表中查找或创建页表项，从而实现对指定线性地址对应的物理页的访问和映射操作。这在操作系统中的分页机制下，是实现虚拟内存与物理内存之间映射关系非常重要的内容。
- - get_pte()函数中有两段形式类似的代码， 结合sv32，sv39，sv48的异同，解释这两段代码为什么如此相像。
- - 目前get_pte()函数将页表项的查找和页表项的分配合并在一个函数里，你认为这种写法好吗？有没有必要把两个功能拆开？
+设计额外的测试如下：
 
-#### 练习3：给未被映射的地址映射上物理页（需要编程）
-补充完成do_pgfault（mm/vmm.c）函数，给未被映射的地址映射上物理页。设置访问权限 的时候需要参考页面所在 VMA 的权限，同时需要注意映射物理页时需要操作内存控制 结构所指定的页表，而不是内核的页表。
-请在实验报告中简要说明你的设计实现过程。请回答如下问题：
- - 请描述页目录项（Page Directory Entry）和页表项（Page Table Entry）中组成部分对ucore实现页替换算法的潜在用处。
- - 如果ucore的缺页服务例程在执行过程中访问内存，出现了页访问异常，请问硬件要做哪些事情？
-- 数据结构Page的全局变量（其实是一个数组）的每一项与页表中的页目录项和页表项有无对应关系？如果有，其对应关系是啥？
+```c
+static void
+print_mm_list() {
+    cprintf("--------begin----------\n");
+    list_entry_t *head = &pra_list_head, *le = head;
+    while ((le = list_next(le)) != head)
+    {
+        struct Page* page = le2page(le, pra_page_link);
+        cprintf("vaddr: %x\n", page->pra_vaddr);
+    }
+    cprintf("---------end-----------\n");
+}
+static int
+_lru_check_swap(void) {
+    print_mm_list();
+    cprintf("write Virt Page c in lru_check_swap\n");
+    *(unsigned char *)0x3000 = 0x0c;
+    print_mm_list();
+    cprintf("write Virt Page a in lru_check_swap\n");
+    *(unsigned char *)0x1000 = 0x0a;
+    print_mm_list();
+    cprintf("write Virt Page b in lru_check_swap\n");
+    *(unsigned char *)0x2000 = 0x0b;
+    print_mm_list();
+    cprintf("write Virt Page e in lru_check_swap\n");
+    *(unsigned char *)0x5000 = 0x0e;
+    print_mm_list();
+    cprintf("write Virt Page b in lru_check_swap\n");
+    *(unsigned char *)0x2000 = 0x0b;
+    print_mm_list();
+    cprintf("write Virt Page a in lru_check_swap\n");
+    *(unsigned char *)0x1000 = 0x0a;
+    print_mm_list();
+    cprintf("write Virt Page b in lru_check_swap\n");
+    *(unsigned char *)0x2000 = 0x0b;
+    print_mm_list();
+    cprintf("write Virt Page c in lru_check_swap\n");
+    *(unsigned char *)0x3000 = 0x0c;
+    print_mm_list();
+    cprintf("write Virt Page d in lru_check_swap\n");
+    *(unsigned char *)0x4000 = 0x0d;
+    print_mm_list();
+    cprintf("write Virt Page e in lru_check_swap\n");
+    *(unsigned char *)0x5000 = 0x0e;
+    print_mm_list();
+    cprintf("write Virt Page a in lru_check_swap\n");
+    assert(*(unsigned char *)0x1000 == 0x0a);
+    *(unsigned char *)0x1000 = 0x0a;
+    print_mm_list();
+    return 0;
+}
+```
 
-#### 练习4：补充完成Clock页替换算法（需要编程）
-通过之前的练习，相信大家对FIFO的页面替换算法有了更深入的了解，现在请在我们给出的框架上，填写代码，实现 Clock页替换算法（mm/swap_clock.c）。
-请在实验报告中简要说明你的设计实现过程。请回答如下问题：
- - 比较Clock页替换算法和FIFO算法的不同。
+与测试有关的测试结果如下：
 
-#### 练习5：阅读代码和实现手册，理解页表映射方式相关知识（思考题）
-如果我们采用”一个大页“ 的页表映射方式，相比分级页表，有什么好处、优势，有什么坏处、风险？
+```c
+set up init env for check_swap over!
+--------begin----------
+vaddr: 0x4000
+vaddr: 0x3000
+vaddr: 0x2000
+vaddr: 0x1000
+---------end-----------
+write Virt Page c in lru_check_swap
+Store/AMO page fault
+page fault at 0x00003000: K/W
+lru page fault at 0x3000
+--------begin----------
+vaddr: 0x3000
+vaddr: 0x4000
+vaddr: 0x2000
+vaddr: 0x1000
+---------end-----------
+write Virt Page a in lru_check_swap
+Store/AMO page fault
+page fault at 0x00001000: K/W
+lru page fault at 0x1000
+--------begin----------
+vaddr: 0x1000
+vaddr: 0x3000
+vaddr: 0x4000
+vaddr: 0x2000
+---------end-----------
+write Virt Page b in lru_check_swap
+Store/AMO page fault
+page fault at 0x00002000: K/W
+lru page fault at 0x2000
+--------begin----------
+vaddr: 0x2000
+vaddr: 0x1000
+vaddr: 0x3000
+vaddr: 0x4000
+---------end-----------
+write Virt Page e in lru_check_swap
+Store/AMO page fault
+page fault at 0x00005000: K/W
+swap_out: i 0, store page in vaddr 0x4000 to disk swap entry 5
+Store/AMO page fault
+page fault at 0x00005000: K/W
+lru page fault at 0x5000
+--------begin----------
+vaddr: 0x5000
+vaddr: 0x2000
+vaddr: 0x1000
+vaddr: 0x3000
+---------end-----------
+write Virt Page b in lru_check_swap
+Store/AMO page fault
+page fault at 0x00002000: K/W
+lru page fault at 0x2000
+--------begin----------
+vaddr: 0x2000
+vaddr: 0x5000
+vaddr: 0x1000
+vaddr: 0x3000
+---------end-----------
+write Virt Page a in lru_check_swap
+Store/AMO page fault
+page fault at 0x00001000: K/W
+lru page fault at 0x1000
+--------begin----------
+vaddr: 0x1000
+vaddr: 0x2000
+vaddr: 0x5000
+vaddr: 0x3000
+---------end-----------
+write Virt Page b in lru_check_swap
+--------begin----------
+vaddr: 0x1000
+vaddr: 0x2000
+vaddr: 0x5000
+vaddr: 0x3000
+---------end-----------
+write Virt Page c in lru_check_swap
+Store/AMO page fault
+page fault at 0x00003000: K/W
+lru page fault at 0x3000
+--------begin----------
+vaddr: 0x3000
+vaddr: 0x1000
+vaddr: 0x2000
+vaddr: 0x5000
+---------end-----------
+write Virt Page d in lru_check_swap
+Store/AMO page fault
+page fault at 0x00004000: K/W
+swap_out: i 0, store page in vaddr 0x5000 to disk swap entry 6
+swap_in: load disk swap entry 5 with swap_page in vadr 0x4000
+Store/AMO page fault
+page fault at 0x00004000: K/W
+lru page fault at 0x4000
+--------begin----------
+vaddr: 0x4000
+vaddr: 0x3000
+vaddr: 0x1000
+vaddr: 0x2000
+---------end-----------
+write Virt Page e in lru_check_swap
+Store/AMO page fault
+page fault at 0x00005000: K/W
+swap_out: i 0, store page in vaddr 0x2000 to disk swap entry 3
+swap_in: load disk swap entry 6 with swap_page in vadr 0x5000
+Store/AMO page fault
+page fault at 0x00005000: K/W
+lru page fault at 0x5000
+--------begin----------
+vaddr: 0x5000
+vaddr: 0x4000
+vaddr: 0x3000
+vaddr: 0x1000
+---------end-----------
+write Virt Page a in lru_check_swap
+Load page fault
+page fault at 0x00001000: K/R
+lru page fault at 0x1000
+--------begin----------
+vaddr: 0x1000
+vaddr: 0x5000
+vaddr: 0x4000
+vaddr: 0x3000
+---------end-----------
+```
 
-#### 扩展练习 Challenge：实现不考虑实现开销和效率的LRU页替换算法（需要编程）
-challenge部分不是必做部分，不过在正确最后会酌情加分。需写出有详细的设计、分析和测试的实验报告。完成出色的可获得适当加分。
-
-
-
+可以看到每次访问页面时都会产生缺页异常，将该页面添加到链表头部，需要移除页面时都从链表尾部删除页面。
