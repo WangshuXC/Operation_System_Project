@@ -1,5 +1,7 @@
 <h1><center>lab1实验报告</center></h1>
 
+[toc]
+
 ## 练习一：理解内核启动中的程序入口操作
 
 阅读 kern/init/entry.S内容代码，结合操作系统内核启动流程，说明指令 la sp, bootstacktop 完成了什么操作，目的是什么？ tail kern_init 完成了什么操作，目的是什么？
