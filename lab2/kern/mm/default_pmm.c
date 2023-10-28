@@ -70,20 +70,20 @@ default_init_memmap(struct Page *base, size_t n) {
     struct Page *p = base;
     for (; p != base + n; p ++) {
         assert(PageReserved(p));
-        p->flags = p->property = 0; //将flags和property初始化
-        set_page_ref(p, 0); //页面引用次数设为0
+        p->flags = p->property = 0;
+        set_page_ref(p, 0);
     }
-    base->property = n; //将首个页面的 `property` 设置为块的总数
+    base->property = n;
     SetPageProperty(base);
     nr_free += n;
     if (list_empty(&free_list)) {
-        list_add(&free_list, &(base->page_link)); //若freelist为空直接加入
+        list_add(&free_list, &(base->page_link));
     } else {
         list_entry_t* le = &free_list;
-        while ((le = list_next(le)) != &free_list) { //不为空则遍历找到位置插入
-            struct Page* page = le2page(le, page_link); 
+        while ((le = list_next(le)) != &free_list) {
+            struct Page* page = le2page(le, page_link);
             if (base < page) {
-                list_add_before(le, &(base->page_link)); //保证地址的有序
+                list_add_before(le, &(base->page_link));
                 break;
             } else if (list_next(le) == &free_list) {
                 list_add(le, &(base->page_link));
@@ -102,7 +102,7 @@ default_alloc_pages(size_t n) {
     list_entry_t *le = &free_list;
     while ((le = list_next(le)) != &free_list) {
         struct Page *p = le2page(le, page_link);
-        if (p->property >= n) { //找到符合条件的页
+        if (p->property >= n) {
             page = p;
             break;
         }
@@ -114,7 +114,7 @@ default_alloc_pages(size_t n) {
             struct Page *p = page + n;
             p->property = page->property - n;
             SetPageProperty(p);
-            list_add(prev, &(p->page_link)); //将剩余的页面空间加入页面块
+            list_add(prev, &(p->page_link));
         }
         nr_free -= n;
         ClearPageProperty(page);
@@ -127,7 +127,7 @@ default_free_pages(struct Page *base, size_t n) {
     assert(n > 0);
     struct Page *p = base;
     for (; p != base + n; p ++) {
-        assert(!PageReserved(p) && !PageProperty(p)); //确认不是保留页面且不具有属性
+        assert(!PageReserved(p) && !PageProperty(p));
         p->flags = 0;
         set_page_ref(p, 0);
     }
@@ -142,7 +142,7 @@ default_free_pages(struct Page *base, size_t n) {
         while ((le = list_next(le)) != &free_list) {
             struct Page* page = le2page(le, page_link);
             if (base < page) {
-                list_add_before(le, &(base->page_link)); //与初始化同理  
+                list_add_before(le, &(base->page_link));
                 break;
             } else if (list_next(le) == &free_list) {
                 list_add(le, &(base->page_link));
