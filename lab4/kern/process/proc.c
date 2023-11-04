@@ -172,12 +172,11 @@ proc_run(struct proc_struct *proc) {
         *   lcr3():                   Modify the value of CR3 register
         *   switch_to():              Context switching between two processes
         */
-       bool intr_flag;//定义中断变量
+        bool intr_flag;//定义中断变量
         struct proc_struct *prev = current, *next = proc;
         local_intr_save(intr_flag); //屏蔽中断
         {
             current = proc;//修改当前进程为新进程
-            load_esp0(next->kstack + KSTACKSIZE);//修改esp
             lcr3(next->cr3);//修改页表项,完成进程间的页表切换
             switch_to(&(prev->context), &(next->context));//上下文切换
         }
