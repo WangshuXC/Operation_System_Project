@@ -177,6 +177,7 @@ proc_run(struct proc_struct *proc) {
         local_intr_save(intr_flag); //屏蔽中断
         {
             current = proc;//修改当前进程为新进程
+
             lcr3(next->cr3);//修改页表项,完成进程间的页表切换
             switch_to(&(prev->context), &(next->context));//上下文切换
         }
@@ -216,14 +217,26 @@ find_proc(int pid) {
 // kernel_thread - create a kernel thread using "fn" function
 // NOTE: the contents of temp trapframe tf will be copied to 
 //       proc->tf in do_fork-->copy_thread function
-int
-kernel_thread(int (*fn)(void *), void *arg, uint32_t clone_flags) {
+
+int kernel_thread(int (*fn)(void *), void *arg, uint32_t clone_flags) {
+    // 对trameframe，也就是我们程序的一些上下文进行一些初始化
     struct trapframe tf;
     memset(&tf, 0, sizeof(struct trapframe));
-    tf.gpr.s0 = (uintptr_t)fn;
-    tf.gpr.s1 = (uintptr_t)arg;
+
+    // 设置内核线程的参数和函数指针
+    tf.gpr.s0 = (uintptr_t)fn; // s0 寄存器保存函数指针
+    tf.gpr.s1 = (uintptr_t)arg; // s1 寄存器保存函数参数
+
+    // 设置 trapframe 中的 status 寄存器（SSTATUS）
+    // SSTATUS_SPP：Supervisor Previous Privilege（设置为 supervisor 模式，因为这是一个内核线程）
+    // SSTATUS_SPIE：Supervisor Previous Interrupt Enable（设置为启用中断，因为这是一个内核线程）
+    // SSTATUS_SIE：Supervisor Interrupt Enable（设置为禁用中断，因为我们不希望该线程被中断）
     tf.status = (read_csr(sstatus) | SSTATUS_SPP | SSTATUS_SPIE) & ~SSTATUS_SIE;
+
+    // 将入口点（epc）设置为 kernel_thread_entry 函数，作用实际上是将pc指针指向它(*trapentry.S会用到)
     tf.epc = (uintptr_t)kernel_thread_entry;
+
+    // 使用 do_fork 创建一个新进程（内核线程），这样才真正用设置的tf创建新进程。
     return do_fork(clone_flags | CLONE_VM, 0, &tf);
 }
 
@@ -391,11 +404,11 @@ proc_init(void) {
         cprintf("alloc_proc() correct!\n");
 
     }
-    
-    idleproc->pid = 0;
-    idleproc->state = PROC_RUNNABLE;
-    idleproc->kstack = (uintptr_t)bootstack;
-    idleproc->need_resched = 1;
+    //对idleproc内核线程进行进一步初始化
+    idleproc->pid = 0;                      //idleproc是第0个内核线程
+    idleproc->state = PROC_RUNNABLE;        //设置准备工作状态
+    idleproc->kstack = (uintptr_t)bootstack;//设置idleproc所使用的内核栈的起始地址
+    idleproc->need_resched = 1;             //只要此标志为1，马上就调用schedule函数要求调度器切换其他进程执行
     set_proc_name(idleproc, "idle");
     nr_process ++;
 

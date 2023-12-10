@@ -23,20 +23,20 @@ manage all these details efficiently. In ucore, a thread is just a special kind 
 process state       :     meaning               -- reason
     PROC_UNINIT     :   uninitialized           -- alloc_proc
     PROC_SLEEPING   :   sleeping                -- try_free_pages, do_wait, do_sleep
-    PROC_RUNNABLE   :   runnable(maybe running) -- proc_init, wakeup_proc, 
+    PROC_RUNNABLE   :   runnable(maybe running) -- proc_init, wakeup_proc,
     PROC_ZOMBIE     :   almost dead             -- do_exit
 
 -----------------------------
 process state changing:
-                                            
+
   alloc_proc                                 RUNNING
       +                                   +--<----<--+
       +                                   + proc_run +
-      V                                   +-->---->--+ 
+      V                                   +-->---->--+
 PROC_UNINIT -- proc_init/wakeup_proc --> PROC_RUNNABLE -- try_free_pages/do_wait/do_sleep --> PROC_SLEEPING --
                                            A      +                                                           +
                                            |      +--- do_exit --> PROC_ZOMBIE                                +
-                                           +                                                                  + 
+                                           +                                                                  +
                                            -----------------------wakeup_proc----------------------------------
 -----------------------------
 process relations
@@ -52,9 +52,9 @@ SYS_wait        : wait process                            -->do_wait
 SYS_exec        : after fork, process execute a program   -->load a program and refresh the mm
 SYS_clone       : create child thread                     -->do_fork-->wakeup_proc
 SYS_yield       : process flag itself need resecheduling, -- proc->need_sched=1, then scheduler will rescheule this process
-SYS_sleep       : process sleep                           -->do_sleep 
+SYS_sleep       : process sleep                           -->do_sleep
 SYS_kill        : kill process                            -->do_kill-->proc->flags |= PF_EXITING
-                                                                 -->wakeup_proc-->do_wait-->do_exit   
+                                                                 -->wakeup_proc-->do_wait-->do_exit
 SYS_getpid      : get the process's pid
 
 */
@@ -62,9 +62,9 @@ SYS_getpid      : get the process's pid
 // the process set's list
 list_entry_t proc_list;
 
-#define HASH_SHIFT          10
-#define HASH_LIST_SIZE      (1 << HASH_SHIFT)
-#define pid_hashfn(x)       (hash32(x, HASH_SHIFT))
+#define HASH_SHIFT 10
+#define HASH_LIST_SIZE (1 << HASH_SHIFT)
+#define pid_hashfn(x) (hash32(x, HASH_SHIFT))
 
 // has list for process set based on pid
 static list_entry_t hash_list[HASH_LIST_SIZE];
@@ -84,46 +84,46 @@ void switch_to(struct context *from, struct context *to);
 
 // alloc_proc - alloc a proc_struct and init all fields of proc_struct
 static struct proc_struct *
-alloc_proc(void) {
+alloc_proc(void)
+{
     struct proc_struct *proc = kmalloc(sizeof(struct proc_struct));
-    if (proc != NULL) {
-    //LAB4:EXERCISE1 YOUR CODE
-    /*
-     * below fields in proc_struct need to be initialized
-     *       enum proc_state state;                      // Process state
-     *       int pid;                                    // Process ID
-     *       int runs;                                   // the running times of Proces
-     *       uintptr_t kstack;                           // Process kernel stack
-     *       volatile bool need_resched;                 // bool value: need to be rescheduled to release CPU?
-     *       struct proc_struct *parent;                 // the parent process
-     *       struct mm_struct *mm;                       // Process's memory management field
-     *       struct context context;                     // Switch here to run process
-     *       struct trapframe *tf;                       // Trap frame for current interrupt
-     *       uintptr_t cr3;                              // CR3 register: the base addr of Page Directroy Table(PDT)
-     *       uint32_t flags;                             // Process flag
-     *       char name[PROC_NAME_LEN + 1];               // Process name
-     */
+    if (proc != NULL)
+    {
+        // LAB4:EXERCISE1 YOUR CODE
+        proc->state = PROC_UNINIT;                           // Process state，为未初始化状态
+        proc->pid = -1;                                      // Process ID，未初始化为-1
+        proc->runs = 0;                                      // the running times of Process，刚初始化，运行时间为0
+        proc->kstack = 0;                                    // Process kernel stack，因为未被执行或重定位，内核栈地址为0
+        proc->need_resched = 0;                              // bool value: need to be rescheduled to release CPU? 不需要
+        proc->parent = NULL;                                 // the parent process， 没有父进程
+        proc->mm = NULL;                                     // Process's memory management field，虚拟内存为空
+        memset(&(proc->context), 0, sizeof(struct context)); // Switch here to run process，初始化上下文
+        proc->tf = NULL;                                     // Trap frame for current interrupt，中断帧指针为空
+        proc->cr3 = boot_cr3;                                // CR3，页目录为内核页目录表基址
+        proc->flags = 0;                                     // Process flag，标志位为0
+        memset(proc->name, 0, PROC_NAME_LEN);                // Process name，进程名为0
 
-     //LAB5 YOUR CODE : (update LAB4 steps)
-     /*
-     * below fields(add in LAB5) in proc_struct need to be initialized  
-     *       uint32_t wait_state;                        // waiting state
-     *       struct proc_struct *cptr, *yptr, *optr;     // relations between processes
-     */
+        // LAB5 YOUR CODE : (update LAB4 steps)
+        proc->wait_state = 0;
+        proc->cptr = NULL;
+        proc->optr = NULL;
+        proc->yptr = NULL;
     }
     return proc;
 }
 
 // set_proc_name - set the name of proc
 char *
-set_proc_name(struct proc_struct *proc, const char *name) {
+set_proc_name(struct proc_struct *proc, const char *name)
+{
     memset(proc->name, 0, sizeof(proc->name));
     return memcpy(proc->name, name, PROC_NAME_LEN);
 }
 
 // get_proc_name - get the name of proc
 char *
-get_proc_name(struct proc_struct *proc) {
+get_proc_name(struct proc_struct *proc)
+{
     static char name[PROC_NAME_LEN + 1];
     memset(name, 0, sizeof(name));
     return memcpy(name, proc->name, PROC_NAME_LEN);
@@ -131,60 +131,74 @@ get_proc_name(struct proc_struct *proc) {
 
 // set_links - set the relation links of process
 static void
-set_links(struct proc_struct *proc) {
+set_links(struct proc_struct *proc)
+{
     list_add(&proc_list, &(proc->list_link));
     proc->yptr = NULL;
-    if ((proc->optr = proc->parent->cptr) != NULL) {
+    if ((proc->optr = proc->parent->cptr) != NULL)
+    {
         proc->optr->yptr = proc;
     }
     proc->parent->cptr = proc;
-    nr_process ++;
+    nr_process++;
 }
 
 // remove_links - clean the relation links of process
 static void
-remove_links(struct proc_struct *proc) {
+remove_links(struct proc_struct *proc)
+{
     list_del(&(proc->list_link));
-    if (proc->optr != NULL) {
+    if (proc->optr != NULL)
+    {
         proc->optr->yptr = proc->yptr;
     }
-    if (proc->yptr != NULL) {
+    if (proc->yptr != NULL)
+    {
         proc->yptr->optr = proc->optr;
     }
-    else {
-       proc->parent->cptr = proc->optr;
+    else
+    {
+        proc->parent->cptr = proc->optr;
     }
-    nr_process --;
+    nr_process--;
 }
 
 // get_pid - alloc a unique pid for process
 static int
-get_pid(void) {
+get_pid(void)
+{
     static_assert(MAX_PID > MAX_PROCESS);
     struct proc_struct *proc;
     list_entry_t *list = &proc_list, *le;
     static int next_safe = MAX_PID, last_pid = MAX_PID;
-    if (++ last_pid >= MAX_PID) {
+    if (++last_pid >= MAX_PID)
+    {
         last_pid = 1;
         goto inside;
     }
-    if (last_pid >= next_safe) {
+    if (last_pid >= next_safe)
+    {
     inside:
         next_safe = MAX_PID;
     repeat:
         le = list;
-        while ((le = list_next(le)) != list) {
+        while ((le = list_next(le)) != list)
+        {
             proc = le2proc(le, list_link);
-            if (proc->pid == last_pid) {
-                if (++ last_pid >= next_safe) {
-                    if (last_pid >= MAX_PID) {
+            if (proc->pid == last_pid)
+            {
+                if (++last_pid >= next_safe)
+                {
+                    if (last_pid >= MAX_PID)
+                    {
                         last_pid = 1;
                     }
                     next_safe = MAX_PID;
                     goto repeat;
                 }
             }
-            else if (proc->pid > last_pid && next_safe > proc->pid) {
+            else if (proc->pid > last_pid && next_safe > proc->pid)
+            {
                 next_safe = proc->pid;
             }
         }
@@ -194,19 +208,20 @@ get_pid(void) {
 
 // proc_run - make process "proc" running on cpu
 // NOTE: before call switch_to, should load  base addr of "proc"'s new PDT
-void
-proc_run(struct proc_struct *proc) {
-    if (proc != current) {
+void proc_run(struct proc_struct *proc)
+{
+    if (proc != current)
+    {
         // LAB4:EXERCISE3 YOUR CODE
-        /*
-        * Some Useful MACROs, Functions and DEFINEs, you can use them in below implementation.
-        * MACROs or Functions:
-        *   local_intr_save():        Disable interrupts
-        *   local_intr_restore():     Enable Interrupts
-        *   lcr3():                   Modify the value of CR3 register
-        *   switch_to():              Context switching between two processes
-        */
-
+        bool intr_flag; // 定义中断变量
+        struct proc_struct *prev = current, *next = proc;
+        local_intr_save(intr_flag); // 屏蔽中断
+        {
+            current = proc;                                // 修改当前进程为新进程
+            lcr3(next->cr3);                               // 修改页表项,完成进程间的页表切换
+            switch_to(&(prev->context), &(next->context)); // 上下文切换
+        }
+        local_intr_restore(intr_flag); // 允许中断
     }
 }
 
@@ -214,30 +229,37 @@ proc_run(struct proc_struct *proc) {
 // NOTE: the addr of forkret is setted in copy_thread function
 //       after switch_to, the current proc will execute here.
 static void
-forkret(void) {
+forkret(void)
+{
     forkrets(current->tf);
 }
 
 // hash_proc - add proc into proc hash_list
 static void
-hash_proc(struct proc_struct *proc) {
+hash_proc(struct proc_struct *proc)
+{
     list_add(hash_list + pid_hashfn(proc->pid), &(proc->hash_link));
 }
 
 // unhash_proc - delete proc from proc hash_list
 static void
-unhash_proc(struct proc_struct *proc) {
+unhash_proc(struct proc_struct *proc)
+{
     list_del(&(proc->hash_link));
 }
 
 // find_proc - find proc frome proc hash_list according to pid
 struct proc_struct *
-find_proc(int pid) {
-    if (0 < pid && pid < MAX_PID) {
+find_proc(int pid)
+{
+    if (0 < pid && pid < MAX_PID)
+    {
         list_entry_t *list = hash_list + pid_hashfn(pid), *le = list;
-        while ((le = list_next(le)) != list) {
+        while ((le = list_next(le)) != list)
+        {
             struct proc_struct *proc = le2proc(le, hash_link);
-            if (proc->pid == pid) {
+            if (proc->pid == pid)
+            {
                 return proc;
             }
         }
@@ -246,10 +268,10 @@ find_proc(int pid) {
 }
 
 // kernel_thread - create a kernel thread using "fn" function
-// NOTE: the contents of temp trapframe tf will be copied to 
+// NOTE: the contents of temp trapframe tf will be copied to
 //       proc->tf in do_fork-->copy_thread function
-int
-kernel_thread(int (*fn)(void *), void *arg, uint32_t clone_flags) {
+int kernel_thread(int (*fn)(void *), void *arg, uint32_t clone_flags)
+{
     struct trapframe tf;
     memset(&tf, 0, sizeof(struct trapframe));
     tf.gpr.s0 = (uintptr_t)fn;
@@ -261,9 +283,11 @@ kernel_thread(int (*fn)(void *), void *arg, uint32_t clone_flags) {
 
 // setup_kstack - alloc pages with size KSTACKPAGE as process kernel stack
 static int
-setup_kstack(struct proc_struct *proc) {
+setup_kstack(struct proc_struct *proc)
+{
     struct Page *page = alloc_pages(KSTACKPAGE);
-    if (page != NULL) {
+    if (page != NULL)
+    {
         proc->kstack = (uintptr_t)page2kva(page);
         return 0;
     }
@@ -272,15 +296,18 @@ setup_kstack(struct proc_struct *proc) {
 
 // put_kstack - free the memory space of process kernel stack
 static void
-put_kstack(struct proc_struct *proc) {
+put_kstack(struct proc_struct *proc)
+{
     free_pages(kva2page((void *)(proc->kstack)), KSTACKPAGE);
 }
 
 // setup_pgdir - alloc one page as PDT
 static int
-setup_pgdir(struct mm_struct *mm) {
+setup_pgdir(struct mm_struct *mm)
+{
     struct Page *page;
-    if ((page = alloc_page()) == NULL) {
+    if ((page = alloc_page()) == NULL)
+    {
         return -E_NO_MEM;
     }
     pde_t *pgdir = page2kva(page);
@@ -292,29 +319,35 @@ setup_pgdir(struct mm_struct *mm) {
 
 // put_pgdir - free the memory space of PDT
 static void
-put_pgdir(struct mm_struct *mm) {
+put_pgdir(struct mm_struct *mm)
+{
     free_page(kva2page(mm->pgdir));
 }
 
 // copy_mm - process "proc" duplicate OR share process "current"'s mm according clone_flags
 //         - if clone_flags & CLONE_VM, then "share" ; else "duplicate"
 static int
-copy_mm(uint32_t clone_flags, struct proc_struct *proc) {
+copy_mm(uint32_t clone_flags, struct proc_struct *proc)
+{
     struct mm_struct *mm, *oldmm = current->mm;
 
     /* current is a kernel thread */
-    if (oldmm == NULL) {
+    if (oldmm == NULL)
+    {
         return 0;
     }
-    if (clone_flags & CLONE_VM) {
+    if (clone_flags & CLONE_VM)
+    {
         mm = oldmm;
         goto good_mm;
     }
     int ret = -E_NO_MEM;
-    if ((mm = mm_create()) == NULL) {
+    if ((mm = mm_create()) == NULL)
+    {
         goto bad_mm;
     }
-    if (setup_pgdir(mm) != 0) {
+    if (setup_pgdir(mm) != 0)
+    {
         goto bad_pgdir_cleanup_mm;
     }
     lock_mm(oldmm);
@@ -323,7 +356,8 @@ copy_mm(uint32_t clone_flags, struct proc_struct *proc) {
     }
     unlock_mm(oldmm);
 
-    if (ret != 0) {
+    if (ret != 0)
+    {
         goto bad_dup_cleanup_mmap;
     }
 
@@ -344,7 +378,8 @@ bad_mm:
 // copy_thread - setup the trapframe on the  process's kernel stack top and
 //             - setup the kernel entry point and stack of process
 static void
-copy_thread(struct proc_struct *proc, uintptr_t esp, struct trapframe *tf) {
+copy_thread(struct proc_struct *proc, uintptr_t esp, struct trapframe *tf)
+{
     proc->tf = (struct trapframe *)(proc->kstack + KSTACKSIZE) - 1;
     *(proc->tf) = *tf;
 
@@ -361,15 +396,16 @@ copy_thread(struct proc_struct *proc, uintptr_t esp, struct trapframe *tf) {
  * @stack:       the parent's user stack pointer. if stack==0, It means to fork a kernel thread.
  * @tf:          the trapframe info, which will be copied to child process's proc->tf
  */
-int
-do_fork(uint32_t clone_flags, uintptr_t stack, struct trapframe *tf) {
+int do_fork(uint32_t clone_flags, uintptr_t stack, struct trapframe *tf)
+{
     int ret = -E_NO_FREE_PROC;
     struct proc_struct *proc;
-    if (nr_process >= MAX_PROCESS) {
+    if (nr_process >= MAX_PROCESS)
+    {
         goto fork_out;
     }
     ret = -E_NO_MEM;
-    //LAB4:EXERCISE2 YOUR CODE
+    // LAB4:EXERCISE2 YOUR CODE
     /*
      * Some Useful MACROs, Functions and DEFINEs, you can use them in below implementation.
      * MACROs or Functions:
@@ -388,22 +424,48 @@ do_fork(uint32_t clone_flags, uintptr_t stack, struct trapframe *tf) {
      */
 
     //    1. call alloc_proc to allocate a proc_struct
+    if ((proc = alloc_proc()) == NULL)
+    { // 调用alloc_proc()函数申请内存块
+        goto fork_out;
+    }
+    proc->parent = current; // 将子进程的父节点设置为当前进程*LAB5
+    assert(current->wait_state == 0);
     //    2. call setup_kstack to allocate a kernel stack for child process
+    if (setup_kstack(proc) != 0)
+    { // 调用setup_stack()函数为进程分配一个内核栈
+        goto bad_fork_cleanup_proc;
+    }
     //    3. call copy_mm to dup OR share mm according clone_flag
+    if (copy_mm(clone_flags, proc) != 0)
+    { // 调用copy_mm()函数复制父进程的内存信息到子进程
+        goto bad_fork_cleanup_kstack;
+    }
     //    4. call copy_thread to setup tf & context in proc_struct
+    copy_thread(proc, stack, tf); // 调用copy_thread()函数复制父进程的中断帧和上下文信息
     //    5. insert proc_struct into hash_list && proc_list
+    bool intr_flag;
+    local_intr_save(intr_flag); // 屏蔽中断，intr_flag置为1
+    {
+        int pid = get_pid();
+        proc->pid = pid;
+        hash_proc(proc);
+        set_links(proc);
+    }
+    local_intr_restore(intr_flag); // 恢复中断
     //    6. call wakeup_proc to make the new child process RUNNABLE
+    wakeup_proc(proc);
     //    7. set ret vaule using child proc's pid
+    ret = proc->pid;
 
-    //LAB5 YOUR CODE : (update LAB4 steps)
-    //TIPS: you should modify your written code in lab4(step1 and step5), not add more code.
-   /* Some Functions
-    *    set_links:  set the relation links of process.  ALSO SEE: remove_links:  lean the relation links of process 
-    *    -------------------
-    *    update step 1: set child proc's parent to current process, make sure current process's wait_state is 0
-    *    update step 5: insert proc_struct into hash_list && proc_list, set the relation links of process
-    */
- 
+    // LAB5 YOUR CODE : (update LAB4 steps)
+    // TIPS: you should modify your written code in lab4(step1 and step5), not add more code.
+    /* Some Functions
+     *    set_links:  set the relation links of process.  ALSO SEE: remove_links:  lean the relation links of process
+     *    -------------------
+     *    update step 1: set child proc's parent to current process, make sure current process's wait_state is 0
+     *    update step 5: insert proc_struct into hash_list && proc_list, set the relation links of process
+     */
+
 fork_out:
     return ret;
 
@@ -418,53 +480,90 @@ bad_fork_cleanup_proc:
 //   1. call exit_mmap & put_pgdir & mm_destroy to free the almost all memory space of process
 //   2. set process' state as PROC_ZOMBIE, then call wakeup_proc(parent) to ask parent reclaim itself.
 //   3. call scheduler to switch to other process
-int
-do_exit(int error_code) {
-    if (current == idleproc) {
+int do_exit(int error_code)
+{
+    // 检查当前进程是否为idleproc或initproc，如果是，发出panic
+    if (current == idleproc)
+    {
         panic("idleproc exit.\n");
     }
-    if (current == initproc) {
+    if (current == initproc)
+    {
         panic("initproc exit.\n");
     }
+
+    // 获取当前进程的内存管理结构mm
     struct mm_struct *mm = current->mm;
-    if (mm != NULL) {
+
+    // 如果mm不为空，说明是用户进程
+    if (mm != NULL)
+    {
+        // 切换到内核页表，确保接下来的操作在内核空间执行
         lcr3(boot_cr3);
-        if (mm_count_dec(mm) == 0) {
+
+        // 如果mm引用计数减到0，说明没有其他进程共享此mm
+        if (mm_count_dec(mm) == 0)
+        {
+            // 释放用户虚拟内存空间相关的资源
             exit_mmap(mm);
             put_pgdir(mm);
             mm_destroy(mm);
         }
+        // 将当前进程的mm设置为NULL，表示资源已经释放
         current->mm = NULL;
     }
+
+    // 设置进程状态为PROC_ZOMBIE，表示进程已退出
     current->state = PROC_ZOMBIE;
     current->exit_code = error_code;
+
     bool intr_flag;
     struct proc_struct *proc;
+
+    // 关中断
     local_intr_save(intr_flag);
     {
+        // 获取当前进程的父进程
         proc = current->parent;
-        if (proc->wait_state == WT_CHILD) {
+
+        // 如果父进程处于等待子进程状态，则唤醒父进程
+        if (proc->wait_state == WT_CHILD)
+        {
             wakeup_proc(proc);
         }
-        while (current->cptr != NULL) {
+
+        // 遍历当前进程的所有子进程
+        while (current->cptr != NULL)
+        {
             proc = current->cptr;
             current->cptr = proc->optr;
-    
+
+            // 设置子进程的父进程为initproc，并加入initproc的子进程链表
             proc->yptr = NULL;
-            if ((proc->optr = initproc->cptr) != NULL) {
+            if ((proc->optr = initproc->cptr) != NULL)
+            {
                 initproc->cptr->yptr = proc;
             }
             proc->parent = initproc;
             initproc->cptr = proc;
-            if (proc->state == PROC_ZOMBIE) {
-                if (initproc->wait_state == WT_CHILD) {
+
+            // 如果子进程也处于退出状态，唤醒initproc
+            if (proc->state == PROC_ZOMBIE)
+            {
+                if (initproc->wait_state == WT_CHILD)
+                {
                     wakeup_proc(initproc);
                 }
             }
         }
     }
+    // 开中断
     local_intr_restore(intr_flag);
+
+    // 调用调度器，选择新的进程执行
     schedule();
+
+    // 如果执行到这里，表示代码执行出现错误，发出panic
     panic("do_exit will not return!! %d.\n", current->pid);
 }
 
@@ -473,57 +572,76 @@ do_exit(int error_code) {
  * @size:  the size of the content of binary program
  */
 static int
-load_icode(unsigned char *binary, size_t size) {
-    if (current->mm != NULL) {
+load_icode(unsigned char *binary, size_t size)
+{
+    // 检查当前进程的内存空间是否为空
+    if (current->mm != NULL)
+    {
         panic("load_icode: current->mm must be empty.\n");
     }
 
     int ret = -E_NO_MEM;
     struct mm_struct *mm;
-    //(1) create a new mm for current process
-    if ((mm = mm_create()) == NULL) {
+    //(1) 为当前进程创建一个新的mm结构体
+    if ((mm = mm_create()) == NULL)
+    {
         goto bad_mm;
     }
-    //(2) create a new PDT, and mm->pgdir= kernel virtual addr of PDT
-    if (setup_pgdir(mm) != 0) {
+    //(2) 创建一个新的页目录表（PDT），并将mm->pgdir指向页目录表在内核虚拟地址空间中的地址
+    if (setup_pgdir(mm) != 0)
+    {
         goto bad_pgdir_cleanup_mm;
     }
-    //(3) copy TEXT/DATA section, build BSS parts in binary to memory space of process
+    //(3) 复制二进制程序的TEXT/DATA节，并在进程的内存空间中建立BSS段
     struct Page *page;
-    //(3.1) get the file header of the bianry program (ELF format)
+    //(3.1) 获取二进制程序的文件头（ELF格式）
     struct elfhdr *elf = (struct elfhdr *)binary;
-    //(3.2) get the entry of the program section headers of the bianry program (ELF format)
+    //(3.2) 获取二进制程序的程序段头入口（ELF格式）
     struct proghdr *ph = (struct proghdr *)(binary + elf->e_phoff);
-    //(3.3) This program is valid?
-    if (elf->e_magic != ELF_MAGIC) {
+    //(3.3) 验证该程序是否为有效的ELF格式
+    if (elf->e_magic != ELF_MAGIC)
+    {
         ret = -E_INVAL_ELF;
         goto bad_elf_cleanup_pgdir;
     }
 
     uint32_t vm_flags, perm;
     struct proghdr *ph_end = ph + elf->e_phnum;
-    for (; ph < ph_end; ph ++) {
-    //(3.4) find every program section headers
-        if (ph->p_type != ELF_PT_LOAD) {
-            continue ;
+    for (; ph < ph_end; ph++)
+    {
+        //(3.4) 遍历程序的每个段头
+        if (ph->p_type != ELF_PT_LOAD)
+        {
+            continue;
         }
-        if (ph->p_filesz > ph->p_memsz) {
+        if (ph->p_filesz > ph->p_memsz)
+        {
             ret = -E_INVAL_ELF;
             goto bad_cleanup_mmap;
         }
-        if (ph->p_filesz == 0) {
-            // continue ;
+        if (ph->p_filesz == 0)
+        {
+            // 空段
+            // continue;
         }
-    //(3.5) call mm_map fun to setup the new vma ( ph->p_va, ph->p_memsz)
+        //(3.5) 调用mm_map函数设置新的虚拟内存区域（vma）（范围为ph->p_va到ph->p_memsz）
         vm_flags = 0, perm = PTE_U | PTE_V;
-        if (ph->p_flags & ELF_PF_X) vm_flags |= VM_EXEC;
-        if (ph->p_flags & ELF_PF_W) vm_flags |= VM_WRITE;
-        if (ph->p_flags & ELF_PF_R) vm_flags |= VM_READ;
-        // modify the perm bits here for RISC-V
-        if (vm_flags & VM_READ) perm |= PTE_R;
-        if (vm_flags & VM_WRITE) perm |= (PTE_W | PTE_R);
-        if (vm_flags & VM_EXEC) perm |= PTE_X;
-        if ((ret = mm_map(mm, ph->p_va, ph->p_memsz, vm_flags, NULL)) != 0) {
+        if (ph->p_flags & ELF_PF_X)
+            vm_flags |= VM_EXEC;
+        if (ph->p_flags & ELF_PF_W)
+            vm_flags |= VM_WRITE;
+        if (ph->p_flags & ELF_PF_R)
+            vm_flags |= VM_READ;
+        // 根据RISC-V的需要修改perm位
+        if (vm_flags & VM_READ)
+            perm |= PTE_R;
+        if (vm_flags & VM_WRITE)
+            perm |= (PTE_W | PTE_R);
+        if (vm_flags & VM_EXEC)
+            perm |= PTE_X;
+        // 调用mm_map函数将段映射到进程的内存空间中
+        if ((ret = mm_map(mm, ph->p_va, ph->p_memsz, vm_flags, NULL)) != 0)
+        {
             goto bad_cleanup_mmap;
         }
         unsigned char *from = binary + ph->p_offset;
@@ -532,67 +650,77 @@ load_icode(unsigned char *binary, size_t size) {
 
         ret = -E_NO_MEM;
 
-     //(3.6) alloc memory, and  copy the contents of every program section (from, from+end) to process's memory (la, la+end)
+        //(3.6) 分配内存，并将二进制程序的每个段的内容复制到进程的内存空间中
         end = ph->p_va + ph->p_filesz;
-     //(3.6.1) copy TEXT/DATA section of bianry program
-        while (start < end) {
-            if ((page = pgdir_alloc_page(mm->pgdir, la, perm)) == NULL) {
+        //(3.6.1) 复制二进制程序的TEXT/DATA节
+        while (start < end)
+        {
+            if ((page = pgdir_alloc_page(mm->pgdir, la, perm)) == NULL)
+            {
                 goto bad_cleanup_mmap;
             }
             off = start - la, size = PGSIZE - off, la += PGSIZE;
-            if (end < la) {
+            if (end < la)
+            {
                 size -= la - end;
             }
             memcpy(page2kva(page) + off, from, size);
             start += size, from += size;
         }
 
-      //(3.6.2) build BSS section of binary program
+        //(3.6.2) 建立二进制程序的BSS节
         end = ph->p_va + ph->p_memsz;
-        if (start < la) {
+        if (start < la)
+        {
             /* ph->p_memsz == ph->p_filesz */
-            if (start == end) {
-                continue ;
+            if (start == end)
+            {
+                continue;
             }
             off = start + PGSIZE - la, size = PGSIZE - off;
-            if (end < la) {
+            if (end < la)
+            {
                 size -= la - end;
             }
             memset(page2kva(page) + off, 0, size);
             start += size;
             assert((end < la && start == end) || (end >= la && start == la));
         }
-        while (start < end) {
-            if ((page = pgdir_alloc_page(mm->pgdir, la, perm)) == NULL) {
+        while (start < end)
+        {
+            if ((page = pgdir_alloc_page(mm->pgdir, la, perm)) == NULL)
+            {
                 goto bad_cleanup_mmap;
             }
             off = start - la, size = PGSIZE - off, la += PGSIZE;
-            if (end < la) {
+            if (end < la)
+            {
                 size -= la - end;
             }
             memset(page2kva(page) + off, 0, size);
             start += size;
         }
     }
-    //(4) build user stack memory
+    //(4) 建立用户堆栈内存
     vm_flags = VM_READ | VM_WRITE | VM_STACK;
-    if ((ret = mm_map(mm, USTACKTOP - USTACKSIZE, USTACKSIZE, vm_flags, NULL)) != 0) {
+    if ((ret = mm_map(mm, USTACKTOP - USTACKSIZE, USTACKSIZE, vm_flags, NULL)) != 0)
+    {
         goto bad_cleanup_mmap;
     }
-    assert(pgdir_alloc_page(mm->pgdir, USTACKTOP-PGSIZE , PTE_USER) != NULL);
-    assert(pgdir_alloc_page(mm->pgdir, USTACKTOP-2*PGSIZE , PTE_USER) != NULL);
-    assert(pgdir_alloc_page(mm->pgdir, USTACKTOP-3*PGSIZE , PTE_USER) != NULL);
-    assert(pgdir_alloc_page(mm->pgdir, USTACKTOP-4*PGSIZE , PTE_USER) != NULL);
-    
-    //(5) set current process's mm, sr3, and set CR3 reg = physical addr of Page Directory
+    assert(pgdir_alloc_page(mm->pgdir, USTACKTOP - PGSIZE, PTE_USER) != NULL);
+    assert(pgdir_alloc_page(mm->pgdir, USTACKTOP - 2 * PGSIZE, PTE_USER) != NULL);
+    assert(pgdir_alloc_page(mm->pgdir, USTACKTOP - 3 * PGSIZE, PTE_USER) != NULL);
+    assert(pgdir_alloc_page(mm->pgdir, USTACKTOP - 4 * PGSIZE, PTE_USER) != NULL);
+
+    //(5) 设置当前进程的mm、sr3，并将CR3寄存器设置为页目录表的物理地址
     mm_count_inc(mm);
     current->mm = mm;
     current->cr3 = PADDR(mm->pgdir);
     lcr3(PADDR(mm->pgdir));
 
-    //(6) setup trapframe for user environment
+    //(6) 为用户环境设置陷阱帧
     struct trapframe *tf = current->tf;
-    // Keep sstatus
+    // 保存sstatus
     uintptr_t sstatus = tf->status;
     memset(tf, 0, sizeof(struct trapframe));
     /* LAB5:EXERCISE1 YOUR CODE
@@ -603,7 +731,9 @@ load_icode(unsigned char *binary, size_t size) {
      *          tf->status should be appropriate for user program (the value of sstatus)
      *          hint: check meaning of SPP, SPIE in SSTATUS, use them by SSTATUS_SPP, SSTATUS_SPIE(defined in risv.h)
      */
-
+    tf->gpr.sp = USTACKTOP;                               // tf->gpr.sp 应该是用户堆栈顶部（即sp的值）
+    tf->epc = elf->e_entry;                               // tf->epc 应该是用户程序的入口点（即sepc的值）
+    tf->status = sstatus & ~(SSTATUS_SPP | SSTATUS_SPIE); // tf->status 应该适用于用户程序（即sstatus的值）
 
     ret = 0;
 out:
@@ -620,35 +750,41 @@ bad_mm:
 
 // do_execve - call exit_mmap(mm)&put_pgdir(mm) to reclaim memory space of current process
 //           - call load_icode to setup new memory space accroding binary prog.
-int
-do_execve(const char *name, size_t len, unsigned char *binary, size_t size) {
+int do_execve(const char *name, size_t len, unsigned char *binary, size_t size)
+{
     struct mm_struct *mm = current->mm;
-    if (!user_mem_check(mm, (uintptr_t)name, len, 0)) {
+    if (!user_mem_check(mm, (uintptr_t)name, len, 0))
+    { // 检查name的内存空间能否被访问
         return -E_INVAL;
     }
-    if (len > PROC_NAME_LEN) {
+    if (len > PROC_NAME_LEN)
+    { // 进程名字的长度有上限 PROC_NAME_LEN，在proc.h定义
         len = PROC_NAME_LEN;
     }
-
     char local_name[PROC_NAME_LEN + 1];
     memset(local_name, 0, sizeof(local_name));
     memcpy(local_name, name, len);
 
-    if (mm != NULL) {
+    if (mm != NULL)
+    {
         cputs("mm != NULL");
         lcr3(boot_cr3);
-        if (mm_count_dec(mm) == 0) {
+        if (mm_count_dec(mm) == 0)
+        {
             exit_mmap(mm);
             put_pgdir(mm);
-            mm_destroy(mm);
+            mm_destroy(mm); // 把进程当前占用的内存释放，之后重新分配内存
         }
         current->mm = NULL;
     }
+    // 把新的程序加载到当前进程里的工作都在load_icode()函数里完成
     int ret;
-    if ((ret = load_icode(binary, size)) != 0) {
-        goto execve_exit;
+    if ((ret = load_icode(binary, size)) != 0)
+    {
+        goto execve_exit; // 返回不为0，则加载失败
     }
     set_proc_name(current, local_name);
+    // 如果set_proc_name的实现不变, 为什么不能直接set_proc_name(current, name)?
     return 0;
 
 execve_exit:
@@ -657,8 +793,8 @@ execve_exit:
 }
 
 // do_yield - ask the scheduler to reschedule
-int
-do_yield(void) {
+int do_yield(void)
+{
     current->need_resched = 1;
     return 0;
 }
@@ -666,74 +802,92 @@ do_yield(void) {
 // do_wait - wait one OR any children with PROC_ZOMBIE state, and free memory space of kernel stack
 //         - proc struct of this child.
 // NOTE: only after do_wait function, all resources of the child proces are free.
-int
-do_wait(int pid, int *code_store) {
-    struct mm_struct *mm = current->mm;
-    if (code_store != NULL) {
-        if (!user_mem_check(mm, (uintptr_t)code_store, sizeof(int), 1)) {
-            return -E_INVAL;
+int do_wait(int pid, int *code_store)    // 等待进程函数，参数pid为等待的子进程id，code_store为存储退出状态码的指针
+{
+    struct mm_struct *mm = current->mm;   // 获取当前进程的内存空间描述符
+
+    if (code_store != NULL)               // 如果存储状态码的指针不为空
+    {
+        if (!user_mem_check(mm, (uintptr_t)code_store, sizeof(int), 1))   // 检查指针所指向的用户内存空间是否可访问
+        {
+            return -E_INVAL;              // 若不可访问则返回错误码-E_INVAL
         }
     }
 
-    struct proc_struct *proc;
+    struct proc_struct *proc;             // 定义子进程结构体指针和中断标志变量
     bool intr_flag, haskid;
+
 repeat:
-    haskid = 0;
-    if (pid != 0) {
-        proc = find_proc(pid);
-        if (proc != NULL && proc->parent == current) {
-            haskid = 1;
-            if (proc->state == PROC_ZOMBIE) {
-                goto found;
+    haskid = 0;                           // 标记是否找到子进程
+    if (pid != 0)                         // 如果pid不为0，表示要等待特定的子进程
+    {
+        proc = find_proc(pid);            // 查找特定pid的进程控制块
+        if (proc != NULL && proc->parent == current)    // 如果找到了对应的进程，并且该进程的父进程是当前进程
+        {
+            haskid = 1;                   // 标记找到了子进程
+            if (proc->state == PROC_ZOMBIE)   // 如果子进程已经成为僵尸进程了
+            {
+                goto found;               // 终止循环，跳转到found标签处执行后续操作
             }
         }
     }
-    else {
-        proc = current->cptr;
-        for (; proc != NULL; proc = proc->optr) {
-            haskid = 1;
-            if (proc->state == PROC_ZOMBIE) {
-                goto found;
+    else                                  // 如果pid为0，表示要等待任意一个子进程
+    {
+        proc = current->cptr;             // 获取当前进程的第一个子进程
+        for (; proc != NULL; proc = proc->optr)   // 遍历所有子进程
+        {
+            haskid = 1;                   // 标记找到了子进程
+            if (proc->state == PROC_ZOMBIE)   // 如果子进程已经成为僵尸进程了
+            {
+                goto found;               // 终止循环，跳转到found标签处执行后续操作
             }
         }
     }
-    if (haskid) {
-        current->state = PROC_SLEEPING;
-        current->wait_state = WT_CHILD;
-        schedule();
-        if (current->flags & PF_EXITING) {
-            do_exit(-E_KILLED);
+    if (haskid)                           // 如果找到了子进程
+    {
+        current->state = PROC_SLEEPING;  // 当前进程状态设置为睡眠
+        current->wait_state = WT_CHILD;  // 等待原因设置为等待子进程
+        schedule();                      // 调度其他进程执行
+        if (current->flags & PF_EXITING) // 如果当前进程已经在退出中
+        {
+            do_exit(-E_KILLED);          // 调用退出函数，退出进程并返回错误码-E_KILLED
         }
-        goto repeat;
+        goto repeat;                     // 执行完调度流程后再次检查是否找到了子进程
     }
-    return -E_BAD_PROC;
+    return -E_BAD_PROC;                  // 如果没有找到对应的子进程则返回错误码-E_BAD_PROC
 
 found:
-    if (proc == idleproc || proc == initproc) {
-        panic("wait idleproc or initproc.\n");
-    }
-    if (code_store != NULL) {
-        *code_store = proc->exit_code;
-    }
-    local_intr_save(intr_flag);
+    if (proc == idleproc || proc == initproc)   // 如果找到的进程是空闲进程或者初始化进程
     {
-        unhash_proc(proc);
-        remove_links(proc);
+        panic("wait idleproc or initproc.\n");  // 内核恐慌，输出错误信息
     }
-    local_intr_restore(intr_flag);
-    put_kstack(proc);
-    kfree(proc);
-    return 0;
+    if (code_store != NULL)                      // 如果存储状态码的指针不为空
+    {
+        *code_store = proc->exit_code;           // 将子进程退出状态码写入指针所指向的用户内存空间
+    }
+    local_intr_save(intr_flag);                  // 关闭中断（保证操作的原子性）
+    {
+        unhash_proc(proc);                       // 将子进程从进程哈希表中删除
+        remove_links(proc);                      // 将子进程从父进程的子进程链表中删除
+    }
+    local_intr_restore(intr_flag);               // 恢复中断
+    put_kstack(proc);                            // 释放子进程使用的内核栈
+    kfree(proc);                                 // 释放子进程的进程控制块
+    return 0;                                    // 返回0表示成功执行等待子进程操作
 }
 
+
 // do_kill - kill process with pid by set this process's flags with PF_EXITING
-int
-do_kill(int pid) {
+int do_kill(int pid)
+{
     struct proc_struct *proc;
-    if ((proc = find_proc(pid)) != NULL) {
-        if (!(proc->flags & PF_EXITING)) {
+    if ((proc = find_proc(pid)) != NULL)
+    {
+        if (!(proc->flags & PF_EXITING))
+        {
             proc->flags |= PF_EXITING;
-            if (proc->wait_state & WT_INTERRUPTED) {
+            if (proc->wait_state & WT_INTERRUPTED)
+            {
                 wakeup_proc(proc);
             }
             return 0;
@@ -745,48 +899,50 @@ do_kill(int pid) {
 
 // kernel_execve - do SYS_exec syscall to exec a user program called by user_main kernel_thread
 static int
-kernel_execve(const char *name, unsigned char *binary, size_t size) {
-    int64_t ret=0, len = strlen(name);
- //   ret = do_execve(name, len, binary, size);
+kernel_execve(const char *name, unsigned char *binary, size_t size)
+{
+    int64_t ret = 0, len = strlen(name);
+    //   ret = do_execve(name, len, binary, size);
     asm volatile(
         "li a0, %1\n"
         "lw a1, %2\n"
         "lw a2, %3\n"
         "lw a3, %4\n"
         "lw a4, %5\n"
-    	"li a7, 10\n"
+        "li a7, 10\n"
         "ebreak\n"
         "sw a0, %0\n"
         : "=m"(ret)
         : "i"(SYS_exec), "m"(name), "m"(len), "m"(binary), "m"(size)
-        : "memory");
+        : "memory"); // 这里内联汇编的格式，和用户态调用ecall的格式类似，只是ecall换成了ebreak
     cprintf("ret = %d\n", ret);
     return ret;
 }
 
-#define __KERNEL_EXECVE(name, binary, size) ({                          \
-            cprintf("kernel_execve: pid = %d, name = \"%s\".\n",        \
-                    current->pid, name);                                \
-            kernel_execve(name, binary, (size_t)(size));                \
-        })
+#define __KERNEL_EXECVE(name, binary, size) ({           \
+    cprintf("kernel_execve: pid = %d, name = \"%s\".\n", \
+            current->pid, name);                         \
+    kernel_execve(name, binary, (size_t)(size));         \
+})
 
-#define KERNEL_EXECVE(x) ({                                             \
-            extern unsigned char _binary_obj___user_##x##_out_start[],  \
-                _binary_obj___user_##x##_out_size[];                    \
-            __KERNEL_EXECVE(#x, _binary_obj___user_##x##_out_start,     \
-                            _binary_obj___user_##x##_out_size);         \
-        })
+#define KERNEL_EXECVE(x) ({                                    \
+    extern unsigned char _binary_obj___user_##x##_out_start[], \
+        _binary_obj___user_##x##_out_size[];                   \
+    __KERNEL_EXECVE(#x, _binary_obj___user_##x##_out_start,    \
+                    _binary_obj___user_##x##_out_size);        \
+})
 
-#define __KERNEL_EXECVE2(x, xstart, xsize) ({                           \
-            extern unsigned char xstart[], xsize[];                     \
-            __KERNEL_EXECVE(#x, xstart, (size_t)xsize);                 \
-        })
+#define __KERNEL_EXECVE2(x, xstart, xsize) ({   \
+    extern unsigned char xstart[], xsize[];     \
+    __KERNEL_EXECVE(#x, xstart, (size_t)xsize); \
+})
 
-#define KERNEL_EXECVE2(x, xstart, xsize)        __KERNEL_EXECVE2(x, xstart, xsize)
+#define KERNEL_EXECVE2(x, xstart, xsize) __KERNEL_EXECVE2(x, xstart, xsize)
 
 // user_main - kernel thread used to exec a user program
 static int
-user_main(void *arg) {
+user_main(void *arg)
+{
 #ifdef TEST
     KERNEL_EXECVE2(TEST, TESTSTART, TESTSIZE);
 #else
@@ -797,16 +953,19 @@ user_main(void *arg) {
 
 // init_main - the second kernel thread used to create user_main kernel threads
 static int
-init_main(void *arg) {
+init_main(void *arg)
+{
     size_t nr_free_pages_store = nr_free_pages();
     size_t kernel_allocated_store = kallocated();
 
     int pid = kernel_thread(user_main, NULL, 0);
-    if (pid <= 0) {
+    if (pid <= 0)
+    {
         panic("create user_main failed.\n");
     }
 
-    while (do_wait(0, NULL) == 0) {
+    while (do_wait(0, NULL) == 0)
+    {
         schedule();
     }
 
@@ -820,18 +979,20 @@ init_main(void *arg) {
     return 0;
 }
 
-// proc_init - set up the first kernel thread idleproc "idle" by itself and 
+// proc_init - set up the first kernel thread idleproc "idle" by itself and
 //           - create the second kernel thread init_main
-void
-proc_init(void) {
+void proc_init(void)
+{
     int i;
 
     list_init(&proc_list);
-    for (i = 0; i < HASH_LIST_SIZE; i ++) {
+    for (i = 0; i < HASH_LIST_SIZE; i++)
+    {
         list_init(hash_list + i);
     }
 
-    if ((idleproc = alloc_proc()) == NULL) {
+    if ((idleproc = alloc_proc()) == NULL)
+    {
         panic("cannot alloc idleproc.\n");
     }
 
@@ -840,12 +1001,13 @@ proc_init(void) {
     idleproc->kstack = (uintptr_t)bootstack;
     idleproc->need_resched = 1;
     set_proc_name(idleproc, "idle");
-    nr_process ++;
+    nr_process++;
 
     current = idleproc;
 
     int pid = kernel_thread(init_main, NULL, 0);
-    if (pid <= 0) {
+    if (pid <= 0)
+    {
         panic("create init_main failed.\n");
     }
 
@@ -857,12 +1019,13 @@ proc_init(void) {
 }
 
 // cpu_idle - at the end of kern_init, the first kernel thread idleproc will do below works
-void
-cpu_idle(void) {
-    while (1) {
-        if (current->need_resched) {
+void cpu_idle(void)
+{
+    while (1)
+    {
+        if (current->need_resched)
+        {
             schedule();
         }
     }
 }
-
