@@ -88,45 +88,27 @@ void switch_to(struct context *from, struct context *to);
 static struct proc_struct *
 alloc_proc(void) {
     struct proc_struct *proc = kmalloc(sizeof(struct proc_struct));
-    if (proc != NULL) {
-    //LAB4:EXERCISE1 YOUR CODE
-    /*
-     * below fields in proc_struct need to be initialized
-     *       enum proc_state state;                      // Process state
-     *       int pid;                                    // Process ID
-     *       int runs;                                   // the running times of Proces
-     *       uintptr_t kstack;                           // Process kernel stack
-     *       volatile bool need_resched;                 // bool value: need to be rescheduled to release CPU?
-     *       struct proc_struct *parent;                 // the parent process
-     *       struct mm_struct *mm;                       // Process's memory management field
-     *       struct context context;                     // Switch here to run process
-     *       struct trapframe *tf;                       // Trap frame for current interrupt
-     *       uintptr_t cr3;                              // CR3 register: the base addr of Page Directroy Table(PDT)
-     *       uint32_t flags;                             // Process flag
-     *       char name[PROC_NAME_LEN + 1];               // Process name
-     */
-     //LAB5 YOUR CODE : (update LAB4 steps)
-    /*
-     * below fields(add in LAB5) in proc_struct need to be initialized
-     *       uint32_t wait_state;                        // waiting state
-     *       struct proc_struct *cptr, *yptr, *optr;     // relations between processes
-     */
-    //LAB6 YOUR CODE : (update LAB5 steps)
-    /*
-     * below fields(add in LAB6) in proc_struct need to be initialized
-     *     struct run_queue *rq;                       // running queue contains Process
-     *     list_entry_t run_link;                      // the entry linked in run queue
-     *     int time_slice;                             // time slice for occupying the CPU
-     *     skew_heap_entry_t lab6_run_pool;            // FOR LAB6 ONLY: the entry in the run pool
-     *     uint32_t lab6_stride;                       // FOR LAB6 ONLY: the current stride of the process
-     *     uint32_t lab6_priority;                     // FOR LAB6 ONLY: the priority of process, set by lab6_set_priority(uint32_t)
-     */
+    if (proc != NULL)
+    {
+        // LAB4:EXERCISE1 YOUR CODE
+        proc->state = PROC_UNINIT;                           // Process state，为未初始化状态
+        proc->pid = -1;                                      // Process ID，未初始化为-1
+        proc->runs = 0;                                      // the running times of Process，刚初始化，运行时间为0
+        proc->kstack = 0;                                    // Process kernel stack，因为未被执行或重定位，内核栈地址为0
+        proc->need_resched = 0;                              // bool value: need to be rescheduled to release CPU? 不需要
+        proc->parent = NULL;                                 // the parent process， 没有父进程
+        proc->mm = NULL;                                     // Process's memory management field，虚拟内存为空
+        memset(&(proc->context), 0, sizeof(struct context)); // Switch here to run process，初始化上下文
+        proc->tf = NULL;                                     // Trap frame for current interrupt，中断帧指针为空
+        proc->cr3 = boot_cr3;                                // CR3，页目录为内核页目录表基址
+        proc->flags = 0;                                     // Process flag，标志位为0
+        memset(proc->name, 0, PROC_NAME_LEN);                // Process name，进程名为0
 
-     //LAB8 YOUR CODE : (update LAB6 steps)
-      /*
-     * below fields(add in LAB6) in proc_struct need to be initialized
-     *       struct files_struct * filesp;                file struct point        
-     */
+        // LAB5 YOUR CODE : (update LAB4 steps)
+        proc->wait_state = 0;
+        proc->cptr = NULL;
+        proc->optr = NULL;
+        proc->yptr = NULL;
     }
     return proc;
 }
@@ -213,24 +195,18 @@ get_pid(void) {
 // NOTE: before call switch_to, should load  base addr of "proc"'s new PDT
 void
 proc_run(struct proc_struct *proc) {
-    if (proc != current) {
-         // LAB4:EXERCISE3 YOUR CODE
-        /*
-        * Some Useful MACROs, Functions and DEFINEs, you can use them in below implementation.
-        * MACROs or Functions:
-        *   local_intr_save():        Disable interrupts
-        *   local_intr_restore():     Enable Interrupts
-        *   lcr3():                   Modify the value of CR3 register
-        *   switch_to():              Context switching between two processes
-        */
-       //LAB8 YOUR CODE : (update LAB4 steps)
-      /*
-     * below fields(add in LAB6) in proc_struct need to be initialized
-    *       before switch_to();you should flush the tlb
-    *        MACROs or Functions:
-     *       flush_tlb():          flush the tlb        
-     */
-
+    if (proc != current)
+    {
+        // LAB4:EXERCISE3 YOUR CODE
+        bool intr_flag; // 定义中断变量
+        struct proc_struct *prev = current, *next = proc;
+        local_intr_save(intr_flag); // 屏蔽中断
+        {
+            current = proc;                                // 修改当前进程为新进程
+            lcr3(next->cr3);                               // 修改页表项,完成进程间的页表切换
+            switch_to(&(prev->context), &(next->context)); // 上下文切换
+        }
+        local_intr_restore(intr_flag); // 允许中断
     }
 }
 
@@ -453,14 +429,39 @@ do_fork(uint32_t clone_flags, uintptr_t stack, struct trapframe *tf) {
      *   proc_list:    the process set's list
      *   nr_process:   the number of process set
      */
-
     //    1. call alloc_proc to allocate a proc_struct
+    if ((proc = alloc_proc()) == NULL)
+    { // 调用alloc_proc()函数申请内存块
+        goto fork_out;
+    }
+    proc->parent = current; // 将子进程的父节点设置为当前进程*LAB5
+    assert(current->wait_state == 0);
     //    2. call setup_kstack to allocate a kernel stack for child process
+    if (setup_kstack(proc) != 0)
+    { // 调用setup_stack()函数为进程分配一个内核栈
+        goto bad_fork_cleanup_proc;
+    }
     //    3. call copy_mm to dup OR share mm according clone_flag
+    if (copy_mm(clone_flags, proc) != 0)
+    { // 调用copy_mm()函数复制父进程的内存信息到子进程
+        goto bad_fork_cleanup_kstack;
+    }
     //    4. call copy_thread to setup tf & context in proc_struct
+    copy_thread(proc, stack, tf); // 调用copy_thread()函数复制父进程的中断帧和上下文信息
     //    5. insert proc_struct into hash_list && proc_list
+    bool intr_flag;
+    local_intr_save(intr_flag); // 屏蔽中断，intr_flag置为1
+    {
+        int pid = get_pid();
+        proc->pid = pid;
+        hash_proc(proc);
+        set_links(proc);
+    }
+    local_intr_restore(intr_flag); // 恢复中断
     //    6. call wakeup_proc to make the new child process RUNNABLE
+    wakeup_proc(proc);
     //    7. set ret vaule using child proc's pid
+    ret = proc->pid;
 
   //LAB5 YOUR CODE : (update LAB4 steps)
    /* Some Functions
@@ -469,10 +470,6 @@ do_fork(uint32_t clone_flags, uintptr_t stack, struct trapframe *tf) {
   *    update step 1: set child proc's parent to current process, make sure current process's wait_state is 0
   *    update step 5: insert proc_struct into hash_list && proc_list, set the relation links of process
     */
-  
-    if (copy_files(clone_flags, proc) != 0) { //for LAB8
-        goto bad_fork_cleanup_kstack;
-    }
    
 fork_out:
     return ret;
@@ -584,7 +581,185 @@ load_icode(int fd, int argc, char **kargv) {
      * (7) setup trapframe for user environment
      * (8) if up steps failed, you should cleanup the env.
      */
-    
+    // 检查当前进程的内存空间是否为空
+    if (current->mm != NULL)
+    {
+        panic("load_icode: current->mm must be empty.\n");
+    }
+
+    int ret = -E_NO_MEM;
+    struct mm_struct *mm;
+    //(1) 为当前进程创建一个新的mm结构体
+    if ((mm = mm_create()) == NULL)
+    {
+        goto bad_mm;
+    }
+    //(2) 创建一个新的页目录表（PDT），并将mm->pgdir指向页目录表在内核虚拟地址空间中的地址
+    if (setup_pgdir(mm) != 0)
+    {
+        goto bad_pgdir_cleanup_mm;
+    }
+    //(3) 复制二进制程序的TEXT/DATA节，并在进程的内存空间中建立BSS段
+    struct Page *page;
+    //(3.1) 获取二进制程序的文件头（ELF格式）
+    struct elfhdr __elf, *elf = &__elf;
+    load_icode_read(fd, (void*)elf, sizeof(struct elfhdr), 0);
+    //(3.2) 获取二进制程序的程序段头入口（ELF格式）
+    struct proghdr __ph, * ph = &__ph;
+    for (ph_index = 0; ph_index < elf->e_phnum; ph_index ++) {
+    //(3.4) find every program section headers
+        off_t ph_off = elf->e_phoff + sizeof(struct proghdr) * ph_index;
+        load_icode_read(fd, (void*)ph, sizeof(struct proghdr), ph_off);
+        // ...
+    }
+    //(3.3) 验证该程序是否为有效的ELF格式
+    if (elf->e_magic != ELF_MAGIC)
+    {
+        ret = -E_INVAL_ELF;
+        goto bad_elf_cleanup_pgdir;
+    }
+
+    uint32_t vm_flags, perm;
+    struct proghdr *ph_end = ph + elf->e_phnum;
+    for (; ph < ph_end; ph++)
+    {
+        //(3.4) 遍历程序的每个段头
+        if (ph->p_type != ELF_PT_LOAD)
+        {
+            continue;
+        }
+        if (ph->p_filesz > ph->p_memsz)
+        {
+            ret = -E_INVAL_ELF;
+            goto bad_cleanup_mmap;
+        }
+        if (ph->p_filesz == 0)
+        {
+            // 空段
+            // continue;
+        }
+        //(3.5) 调用mm_map函数设置新的虚拟内存区域（vma）（范围为ph->p_va到ph->p_memsz）
+        vm_flags = 0, perm = PTE_U | PTE_V;
+        if (ph->p_flags & ELF_PF_X)
+            vm_flags |= VM_EXEC;
+        if (ph->p_flags & ELF_PF_W)
+            vm_flags |= VM_WRITE;
+        if (ph->p_flags & ELF_PF_R)
+            vm_flags |= VM_READ;
+        // 根据RISC-V的需要修改perm位
+        if (vm_flags & VM_READ)
+            perm |= PTE_R;
+        if (vm_flags & VM_WRITE)
+            perm |= (PTE_W | PTE_R);
+        if (vm_flags & VM_EXEC)
+            perm |= PTE_X;
+        // 调用mm_map函数将段映射到进程的内存空间中
+        if ((ret = mm_map(mm, ph->p_va, ph->p_memsz, vm_flags, NULL)) != 0)
+        {
+            goto bad_cleanup_mmap;
+        }
+        unsigned char *from = binary + ph->p_offset;
+        size_t off, size;
+        uintptr_t start = ph->p_va, end, la = ROUNDDOWN(start, PGSIZE);
+
+        ret = -E_NO_MEM;
+
+        //(3.6) 分配内存，并将二进制程序的每个段的内容复制到进程的内存空间中
+        end = ph->p_va + ph->p_filesz;
+        //(3.6.1) 复制二进制程序的TEXT/DATA节
+        while (start < end)
+        {
+            if ((page = pgdir_alloc_page(mm->pgdir, la, perm)) == NULL)
+            {
+                goto bad_cleanup_mmap;
+            }
+            off = start - la, size = PGSIZE - off, la += PGSIZE;
+            if (end < la)
+            {
+                size -= la - end;
+            }
+            memcpy(page2kva(page) + off, from, size);
+            start += size, from += size;
+        }
+
+        //(3.6.2) 建立二进制程序的BSS节
+        end = ph->p_va + ph->p_memsz;
+        if (start < la)
+        {
+            /* ph->p_memsz == ph->p_filesz */
+            if (start == end)
+            {
+                continue;
+            }
+            off = start + PGSIZE - la, size = PGSIZE - off;
+            if (end < la)
+            {
+                size -= la - end;
+            }
+            memset(page2kva(page) + off, 0, size);
+            start += size;
+            assert((end < la && start == end) || (end >= la && start == la));
+        }
+        while (start < end)
+        {
+            if ((page = pgdir_alloc_page(mm->pgdir, la, perm)) == NULL)
+            {
+                goto bad_cleanup_mmap;
+            }
+            off = start - la, size = PGSIZE - off, la += PGSIZE;
+            if (end < la)
+            {
+                size -= la - end;
+            }
+            memset(page2kva(page) + off, 0, size);
+            start += size;
+        }
+    }
+    //(4) 建立用户堆栈内存
+    vm_flags = VM_READ | VM_WRITE | VM_STACK;
+    if ((ret = mm_map(mm, USTACKTOP - USTACKSIZE, USTACKSIZE, vm_flags, NULL)) != 0)
+    {
+        goto bad_cleanup_mmap;
+    }
+    assert(pgdir_alloc_page(mm->pgdir, USTACKTOP - PGSIZE, PTE_USER) != NULL);
+    assert(pgdir_alloc_page(mm->pgdir, USTACKTOP - 2 * PGSIZE, PTE_USER) != NULL);
+    assert(pgdir_alloc_page(mm->pgdir, USTACKTOP - 3 * PGSIZE, PTE_USER) != NULL);
+    assert(pgdir_alloc_page(mm->pgdir, USTACKTOP - 4 * PGSIZE, PTE_USER) != NULL);
+
+    //(5) 设置当前进程的mm、sr3，并将CR3寄存器设置为页目录表的物理地址
+    mm_count_inc(mm);
+    current->mm = mm;
+    current->cr3 = PADDR(mm->pgdir);
+    lcr3(PADDR(mm->pgdir));
+
+    //(6) 为用户环境设置陷阱帧
+    struct trapframe *tf = current->tf;
+    // 保存sstatus
+    uintptr_t sstatus = tf->status;
+    memset(tf, 0, sizeof(struct trapframe));
+    /* LAB5:EXERCISE1 YOUR CODE
+     * should set tf->gpr.sp, tf->epc, tf->status
+     * NOTICE: If we set trapframe correctly, then the user level process can return to USER MODE from kernel. So
+     *          tf->gpr.sp should be user stack top (the value of sp)
+     *          tf->epc should be entry point of user program (the value of sepc)
+     *          tf->status should be appropriate for user program (the value of sstatus)
+     *          hint: check meaning of SPP, SPIE in SSTATUS, use them by SSTATUS_SPP, SSTATUS_SPIE(defined in risv.h)
+     */
+    tf->gpr.sp = USTACKTOP;                               // tf->gpr.sp 应该是用户堆栈顶部（即sp的值）
+    tf->epc = elf->e_entry;                               // tf->epc 应该是用户程序的入口点（即sepc的值）
+    tf->status = sstatus & ~(SSTATUS_SPP | SSTATUS_SPIE); // tf->status 应该适用于用户程序（即sstatus的值）
+
+    ret = 0;
+out:
+    return ret;
+bad_cleanup_mmap:
+    exit_mmap(mm);
+bad_elf_cleanup_pgdir:
+    put_pgdir(mm);
+bad_pgdir_cleanup_mm:
+    mm_destroy(mm);
+bad_mm:
+    goto out;
 }
 
 // this function isn't very correct in LAB8

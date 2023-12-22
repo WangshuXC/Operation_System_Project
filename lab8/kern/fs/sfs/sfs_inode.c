@@ -599,8 +599,41 @@ sfs_io_nolock(struct sfs_fs *sfs, struct sfs_inode *sin, void *buf, off_t offset
      * (3) If end position isn't aligned with the last block, Rd/Wr some content from begin to the (endpos % SFS_BLKSIZE) of the last block
 	 *       NOTICE: useful function: sfs_bmap_load_nolock, sfs_buf_op	
 	*/
-
-    
+    //当起始的偏移量不是`SFS_BLKSIZE`的倍数时，该块不需要全部读取，所以在使用`sfs_bmap_load_nolock`获取`ino`之后，使用`sfs_buf_op`从指定位置读取指定大小的数据，更新`alen`
+    blkoff = offset % SFS_BLKSIZE;
+    if(blkoff != 0) {
+        size = (nblks != 0) ? (SFS_BLKSIZE - blkoff) : (endpos - offset);
+        ret = sfs_bmap_load_nolock(sfs, sin, blkno, &ino);
+        if(ret != 0) goto out;
+        ret = sfs_buf_op(sfs, buf, size, ino, blkoff);
+        if(ret != 0) goto out;
+        alen += size;
+        buf += size;
+        if(nblks == 0)
+            goto out;
+        blkno++;
+        nblks--;
+    }
+    //中间的块都是连续读取的，所以可以直接使用sfs_block_op连续读取若干块，读取完毕之后也要更新相关变量
+    if(nblks > 0) {
+    ret = sfs_bmap_load_nolock(sfs, sin, blkno, &ino);
+    if(ret != 0) goto out;
+    ret = sfs_block_op(sfs, buf, blkno, nblks);
+    if(ret != 0) goto out;
+    alen += nblks * SFS_BLKSIZE;
+    buf += nblks * SFS_BLKSIZE;
+    blkno += nblks;
+    nblks = 0;
+    }
+    size = endpos % SFS_BLKSIZE;
+    //当结束的偏移量不是SFS_BLKSIZE的整数倍时，与起始块一样需要使用sfs_buf_op读取
+    if(size != 0) {
+        ret = sfs_bmap_load_nolock(sfs, sin, blkno, &ino);
+        if(ret != 0) goto out;
+        ret = sfs_buf_op(sfs, buf, size, ino, 0);
+        if(ret != 0) goto out;
+        alen += size;
+    }
 
 out:
     *alenp = alen;
